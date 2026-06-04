@@ -3,18 +3,37 @@
 @tailwind utilities;
 
 /* ─────────────────────────────────────────────
-   Design tokens (mirrors tailwind.config.js)
+   Design tokens — space-separated RGB so both
+   plain CSS (rgb(var(--bg))) and Tailwind opacity
+   modifiers (bg-background/95) work together.
    ───────────────────────────────────────────── */
+
+/* Dark mode (default) */
 :root {
-  --bg: #0a0a0a;
-  --surface: #111111;
-  --card: #1a1a1a;
-  --border: #2a2a2a;
-  --accent: #c9a84c;
-  --accent-light: #e8c870;
-  --text-primary: #f5f5f5;
-  --text-secondary: #888888;
-  --text-muted: #555555;
+  --bg:             10  10  10;   /* #0a0a0a */
+  --surface:        17  17  17;   /* #111111 */
+  --card:           26  26  26;   /* #1a1a1a */
+  --border:         42  42  42;   /* #2a2a2a */
+  --text-primary:  245 245 245;   /* #f5f5f5 */
+  --text-secondary:136 136 136;   /* #888888 */
+  --text-muted:     85  85  85;   /* #555555 */
+  --accent:        #c9a84c;
+  --accent-light:  #e8c870;
+  --skeleton-bg:   #1a1a1a;
+  --shimmer:       rgba(255,255,255,0.04);
+}
+
+/* Light mode — warm cream/parchment palette */
+.light {
+  --bg:            250 249 247;   /* #faf9f7 warm cream  */
+  --surface:       243 240 235;   /* #f3f0eb             */
+  --card:          237 233 226;   /* #ede9e2             */
+  --border:        212 207 199;   /* #d4cfc7             */
+  --text-primary:   28  25  23;   /* #1c1917 near-black  */
+  --text-secondary:107 101  96;   /* #6b6560             */
+  --text-muted:    160 156 149;   /* #a09c95             */
+  --skeleton-bg:   #e8e3da;
+  --shimmer:       rgba(0,0,0,0.04);
 }
 
 @layer base {
@@ -23,6 +42,8 @@
   }
   html {
     scroll-behavior: smooth;
+    /* Smooth colour transition when toggling theme */
+    transition: background-color 0.3s ease, color 0.2s ease;
   }
   body {
     @apply bg-background text-textPrimary font-sans antialiased;
@@ -47,14 +68,14 @@
     height: 10px;
   }
   ::-webkit-scrollbar-track {
-    background: var(--bg);
+    background: rgb(var(--bg));
   }
   ::-webkit-scrollbar-thumb {
-    background: var(--border);
+    background: rgb(var(--border));
     border-radius: 9999px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #3a3a3a;
+    background: rgb(var(--border) / 0.7);
   }
 }
 
@@ -120,7 +141,7 @@
     -webkit-text-fill-color: transparent;
   }
   .glass {
-    background: rgba(10, 10, 10, 0.85);
+    background: rgb(var(--bg) / 0.88);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
   }
@@ -137,14 +158,14 @@
 .skeleton {
   position: relative;
   overflow: hidden;
-  background: #1a1a1a;
+  background: var(--skeleton-bg);
 }
 .skeleton::after {
   content: '';
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.04), transparent);
+  background: linear-gradient(90deg, transparent, var(--shimmer), transparent);
   animation: shimmer 1.5s infinite;
 }
 @keyframes shimmer {

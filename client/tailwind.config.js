@@ -4,18 +4,20 @@ export default {
   theme: {
     extend: {
       colors: {
-        background: '#0a0a0a',
-        surface: '#111111',
-        card: '#1a1a1a',
-        border: '#2a2a2a',
+        // All themed colors read from CSS variables so light/dark switching works.
+        // The <alpha-value> token lets Tailwind opacity modifiers work (e.g. bg-background/95).
+        background: 'rgb(var(--bg) / <alpha-value>)',
+        surface:    'rgb(var(--surface) / <alpha-value>)',
+        card:       'rgb(var(--card) / <alpha-value>)',
+        border:     'rgb(var(--border) / <alpha-value>)',
+        textPrimary:   'rgb(var(--text-primary) / <alpha-value>)',
+        textSecondary: 'rgb(var(--text-secondary) / <alpha-value>)',
+        textMuted:     'rgb(var(--text-muted) / <alpha-value>)',
         accent: {
           DEFAULT: '#c9a84c',
           light: '#e8c870',
           dark: '#a8893c',
         },
-        textPrimary: '#f5f5f5',
-        textSecondary: '#888888',
-        textMuted: '#555555',
         success: '#22c55e',
         error: '#ef4444',
       },

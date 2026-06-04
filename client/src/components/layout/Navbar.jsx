@@ -10,10 +10,13 @@ import {
   LogOut,
   LayoutDashboard,
   Package,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useCart } from '../../hooks/useCart';
 import { useWishlist } from '../../hooks/useWishlist';
+import { useTheme } from '../../context/ThemeContext';
 
 const navItems = [
   { to: '/', label: 'Home', end: true },
@@ -27,6 +30,7 @@ export default function Navbar() {
   const { isAuthenticated, isAdmin, user, logout } = useAuth();
   const { count: cartCount, setDrawerOpen } = useCart();
   const { count: wishCount } = useWishlist();
+  const { theme, toggleTheme } = useTheme();
 
   const [scrolled, setScrolled] = useState(false);
   const [hidden, setHidden] = useState(false);
@@ -156,6 +160,15 @@ export default function Navbar() {
                 </button>
               )}
             </div>
+
+            {/* Day / Night toggle */}
+            <button
+              onClick={toggleTheme}
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              className="text-textPrimary transition-colors hover:text-accent"
+            >
+              {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
 
             <Link
               to="/wishlist"
@@ -294,7 +307,7 @@ export default function Navbar() {
               )}
             </div>
 
-            <div className="mt-auto border-t border-border p-4">
+            <div className="mt-auto border-t border-border p-4 flex items-center justify-between">
               {isAuthenticated ? (
                 <button
                   onClick={handleLogout}
@@ -303,10 +316,18 @@ export default function Navbar() {
                   <LogOut size={18} /> Logout
                 </button>
               ) : (
-                <Link to="/login" onClick={() => setMobileOpen(false)} className="btn-primary w-full">
+                <Link to="/login" onClick={() => setMobileOpen(false)} className="btn-primary">
                   Login / Register
                 </Link>
               )}
+              <button
+                onClick={toggleTheme}
+                aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                className="flex items-center gap-2 text-textSecondary hover:text-accent transition-colors"
+              >
+                {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+                <span className="text-sm">{theme === 'dark' ? 'Day' : 'Night'}</span>
+              </button>
             </div>
           </div>
         </div>
