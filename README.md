@@ -1,12 +1,64 @@
-# LUXE — Modern Ecommerce Platform
+# LUXE — Modern MERN Ecommerce Platform
 
-A complete, production-ready **MERN** ecommerce application with a dark luxury
-theme. Customers browse, search, filter, wishlist, compare, checkout and track
-orders; admins manage products, orders, users, categories, coupons, reviews and
-view analytics.
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind-3-06B6D4?logo=tailwindcss&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-18+-339933?logo=node.js&logoColor=white)
+![Express](https://img.shields.io/badge/Express-4-000000?logo=express&logoColor=white)
+![MongoDB](https://img.shields.io/badge/MongoDB-6/7-47A248?logo=mongodb&logoColor=white)
+![Frontend on Vercel](https://img.shields.io/badge/Frontend-Vercel-000000?logo=vercel&logoColor=white)
+![Backend on Render](https://img.shields.io/badge/Backend-Render-46E3B7?logo=render&logoColor=white)
+![License: MIT](https://img.shields.io/badge/License-MIT-c9a84c.svg)
+![Last commit](https://img.shields.io/github/last-commit/tushar4935/Ecommerce-Website)
 
-> Stack: **MongoDB · Express · React (Vite) · Node.js** — JWT auth with refresh
-> rotation, Cloudinary uploads, Nodemailer emails, Recharts dashboards.
+A full-featured **MERN** ecommerce project — a customer storefront **and** an admin
+dashboard — with JWT auth (refresh-token **rotation**), URL-synced product filtering,
+a guest cart that syncs to the database on login, and Recharts analytics. Built as an
+in-depth portfolio/reference implementation of a real store's moving parts.
+
+> **Payment is intentionally low-stakes:** Cash on Delivery is fully functional, and
+> card checkout uses **Razorpay test mode** when keys are configured — otherwise it
+> falls back to a **no-charge demo**. No real money ever moves.
+
+---
+
+## 🔗 Live Demo
+
+> 🚧 **Deploying now.** The live URL is dropped in here as soon as the backend (Render)
+> and frontend (Vercel) are up. Until then, follow [Local Setup](#-local-setup) — every
+> flow works locally.
+
+| Surface | URL |
+| --- | --- |
+| 🛍 Storefront | `https://…` _(coming)_ |
+| 🔐 Admin dashboard | `https://…/admin` _(log in with the admin account below)_ |
+
+### Demo credentials _(created by `npm run seed`)_
+
+| Role | Email | Password |
+|------|-------|----------|
+| **Admin** | `admin@luxe.com` | `Admin@123` |
+| **Customer** | `customer1@luxe.com` | `Customer@123` |
+
+_Additional demo customers `customer2@luxe.com` … `customer6@luxe.com` share the password
+`Customer@123`. Demo coupons: **WELCOME10**, **SAVE20** (min $150), **FLAT50** (min $200),
+**SPRING15** (min $100), **VIP100** (min $500)._
+
+---
+
+## 📸 Screenshots
+
+> _Captured from the live site — added in the deployment step._
+
+<!-- SCREENSHOTS: replaced with real images once the site is live (Task 3). -->
+
+| Home | Shop + filters | Product detail |
+| --- | --- | --- |
+| _coming_ | _coming_ | _coming_ |
+
+| Cart / Checkout | Admin dashboard | Admin product CRUD |
+| --- | --- | --- |
+| _coming_ | _coming_ | _coming_ |
 
 ---
 
@@ -19,7 +71,7 @@ view analytics.
 - Product detail: image gallery, size/color pickers, quantity, tabs
   (Description / Specifications / Reviews), rating distribution, related products
 - Cart (guest **localStorage** → synced to DB on login), slide-in cart drawer,
-  coupons, live totals (free shipping > $100, 10% tax)
+  coupons, live totals (free shipping over $100, 10% tax)
 - Multi-step checkout (Shipping → Payment → Review) with saved addresses
 - Wishlist, product compare (up to 4)
 - Account: profile + avatar, orders with status timeline, cancel/reorder,
@@ -40,7 +92,8 @@ view analytics.
 - `express-validator`, `helmet`, `cors`, `express-rate-limit`, `express-mongo-sanitize`,
   `hpp`, `compression`
 - Global error handler with Mongoose/JWT/duplicate-key normalization
-- Reusable `APIFeatures` (search/filter/sort/paginate) and seed script
+- Reusable `APIFeatures` (search/filter/sort/paginate) and a rich seed script
+- Optional **Razorpay** test-mode checkout with server-side signature verification
 
 ---
 
@@ -50,7 +103,57 @@ view analytics.
 |-----------|-----------|
 | Frontend  | React 18, Vite 5, React Router 6, Tailwind CSS 3, Axios, React Hook Form + Zod, Recharts, Swiper, react-hot-toast, lucide-react |
 | Backend   | Node 18+, Express 4, Mongoose 8, JWT, bcryptjs, Multer + Cloudinary, Nodemailer, express-validator |
-| Database  | MongoDB 6/7 |
+| Database  | MongoDB 6/7 (Atlas in production) |
+| Payments  | Cash on Delivery (functional) + optional Razorpay test mode |
+| Hosting   | Vercel (client) · Render (API) · MongoDB Atlas (data) |
+
+---
+
+## 🏗 Architecture
+
+A classic split: a **React single-page app** talks to a **stateless Express REST API**,
+which persists to **MongoDB**. Optional third-party services (Cloudinary, SMTP, Razorpay)
+are wired in but degrade gracefully when their keys are absent.
+
+```mermaid
+flowchart LR
+  U["Browser — React SPA<br/>(Vercel)"] -->|"HTTPS · JSON<br/>Bearer access token"| A["Express REST API<br/>(Render)"]
+  U -.->|"httpOnly refresh cookie<br/>SameSite=None; Secure"| A
+  A --> D[("MongoDB Atlas")]
+  A -.->|optional| C["Cloudinary<br/>(images)"]
+  A -.->|optional| M["SMTP<br/>(email)"]
+  A -.->|optional| R["Razorpay<br/>(test-mode payments)"]
+```
+
+**Auth flow (why there are two tokens).** On login the API returns a short-lived
+**access token** (15 min, kept in memory on the client and sent as
+`Authorization: Bearer …`) and sets a long-lived **refresh token** in an **httpOnly
+cookie** (7 days, invisible to JavaScript so XSS can't steal it). When the access token
+expires, the client silently calls `/auth/refresh-token`; the server verifies the cookie
+against a **hashed copy in the database**, then **rotates** it — deleting the old record
+and issuing a new one — so a stolen refresh token is only usable until the next refresh.
+This is why login survives a page reload without keeping a password or long-lived token in
+`localStorage`.
+
+**Data model (core collections).**
+
+```mermaid
+erDiagram
+  USER ||--o{ ORDER : places
+  USER ||--o{ REVIEW : writes
+  USER ||--|| CART : has
+  USER ||--|| WISHLIST : has
+  USER ||--o{ REFRESHTOKEN : owns
+  CATEGORY ||--o{ PRODUCT : contains
+  PRODUCT ||--o{ REVIEW : receives
+  CART ||--o{ CARTITEM : holds
+  ORDER ||--o{ ORDERITEM : contains
+  PRODUCT ||--o{ ORDERITEM : "snapshotted into"
+  COUPON ||..o{ ORDER : discounts
+```
+
+Order line items **snapshot** the product name, price and image at purchase time, so an
+order's history stays correct even if the product is later edited or deleted.
 
 ---
 
@@ -60,10 +163,11 @@ view analytics.
 - **MongoDB** running locally (`mongodb://127.0.0.1:27017`) or a MongoDB Atlas URI
 - *(Optional)* a **Cloudinary** account for real image uploads
 - *(Optional)* SMTP credentials (e.g. a Gmail App Password) for real emails
+- *(Optional)* **Razorpay** test keys to enable live test-mode card payments
 
-> Cloudinary and SMTP are **optional in development**: without them, the app uses
-> deterministic `picsum.photos` placeholder images and logs emails to the server
-> console — every flow still works end-to-end.
+> Cloudinary, SMTP and Razorpay are **optional in development**: without them, the app
+> uses deterministic placeholder images, logs emails to the server console, and runs a
+> no-charge demo checkout — every flow still works end-to-end.
 
 ---
 
@@ -71,14 +175,14 @@ view analytics.
 
 ```bash
 # 1. Clone
-git clone <your-repo-url> luxe-ecommerce
+git clone https://github.com/tushar4935/Ecommerce-Website.git luxe-ecommerce
 cd luxe-ecommerce
 
 # 2. Backend
 cd server
 cp .env.example .env        # then edit values (defaults work for local dev)
 npm install
-npm run seed                # creates demo users, products, orders, coupons
+npm run seed                # creates demo users, products, reviews, orders, coupons
 npm run dev                 # http://localhost:5000
 
 # 3. Frontend (new terminal)
@@ -103,6 +207,7 @@ Open **http://localhost:5173**.
 | `JWT_ACCESS_EXPIRE` / `JWT_REFRESH_EXPIRE` | e.g. `15m` / `7d` |
 | `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | Optional — image uploads |
 | `EMAIL_HOST` / `EMAIL_PORT` / `EMAIL_USER` / `EMAIL_PASS` / `EMAIL_FROM` | Optional — Nodemailer SMTP |
+| `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` / `RAZORPAY_CURRENCY` | Optional — test-mode card payments (blank = demo checkout) |
 | `FRONTEND_URL` | Frontend origin for CORS + email links (`http://localhost:5173`) |
 
 **`client/.env`**
@@ -113,36 +218,23 @@ Open **http://localhost:5173**.
 
 ---
 
-## 🔑 Default Credentials (after `npm run seed`)
-
-| Role | Email | Password |
-|------|-------|----------|
-| Admin | `admin@luxe.com` | `Admin@123` |
-| Customer | `customer1@luxe.com` | `Customer@123` |
-| Customer | `customer2@luxe.com` | `Customer@123` |
-| Customer | `customer3@luxe.com` | `Customer@123` |
-
-Demo coupons: **WELCOME10** (10% off), **SAVE20** (20% off, min $150), **FLAT50** ($50 off min $200).
-
----
-
 ## 🗂 Project Structure
 
 ```
 luxe-ecommerce/
 ├── server/
 │   ├── config/         # db, cloudinary, nodemailer
-│   ├── controllers/    # auth, user, product, category, cart, order, review, wishlist, coupon, admin
+│   ├── controllers/    # auth, user, product, category, cart, order, review, wishlist, coupon, payment, admin
 │   ├── middleware/     # auth, admin, error, validate, upload
 │   ├── models/         # User, Product, Category, Order, Cart, Review, Wishlist, Coupon, RefreshToken
 │   ├── routes/         # one router per resource
-│   ├── utils/          # generateTokens, apiFeatures, sendEmail, seedData, asyncHandler, ApiError
+│   ├── utils/          # generateTokens, apiFeatures, orderTotals, razorpay, sendEmail, seedData, asyncHandler, ApiError
 │   └── server.js
 └── client/
     └── src/
         ├── api/         # axios instance + per-resource API modules
         ├── components/  # layout, ui, products, cart, admin
-        ├── context/     # AuthContext, CartContext, WishlistContext
+        ├── context/     # AuthContext, CartContext, WishlistContext, ThemeContext
         ├── hooks/       # useAuth, useCart, useWishlist, useDebounce, useLocalStorage
         ├── pages/       # store, auth, account/, admin/
         ├── routes/      # AppRoutes, PrivateRoute, AdminRoute
@@ -186,6 +278,10 @@ Base URL: `http://localhost:5000/api`. All responses are JSON with a
 
 ### Orders — `/orders` *(protected)*
 `GET /` · `GET /:id` · `POST /` *(place order)* · `POST /:id/cancel`
+
+### Payments — `/payments`
+`GET /config` *(public — is online payment enabled?)* ·
+`POST /razorpay/order` *(protected — create a Razorpay order for the cart)*
 
 ### Reviews — `/reviews`
 `GET /` *(admin, all)* · `GET /product/:productId` · `POST /product/:productId` ·
@@ -258,22 +354,26 @@ Content-Type: application/json
 4. Deploy. Ensure the backend `FRONTEND_URL` matches the Vercel URL so CORS +
    the refresh cookie (`SameSite=None; Secure`) work.
 
-### Cloudinary (free tier)
-Create an account, copy Cloud name / API key / API secret into the backend env.
-Uploaded product/category/avatar images are then stored on Cloudinary; otherwise
-the app falls back to placeholder images.
+### Optional services
+- **Cloudinary** — add the three keys to store uploaded product/category/avatar images;
+  without them the app serves placeholder images.
+- **Razorpay** — add test keys to enable live test-mode card payments; without them,
+  card checkout runs a no-charge demo and Cash on Delivery still works.
 
 ---
 
-## ⚠️ Known Limitations & Future Improvements
-- Payment is **UI-only** (Stripe/PayPal flows are simulated; COD is fully functional).
+## ⚠️ Known Limitations & Notes
+- **Payment is deliberately not production-grade.** Cash on Delivery is fully functional;
+  card checkout uses Razorpay **test mode** (or a no-charge demo without keys). Do not
+  treat this as a PCI-compliant, real-money checkout.
 - No real-time order tracking (would add WebSockets/SSE).
 - Email verification is optional and non-blocking by default.
-- Single-currency (USD); i18n/multi-currency could be added.
-- Frontend bundle could be code-split (lazy routes) to shrink initial load.
-- Add automated tests (Jest + React Testing Library + Supertest).
+- Single-currency; i18n/multi-currency could be added.
+- The frontend bundle could be code-split (lazy routes) to shrink initial load.
+- No automated test suite yet (Jest + React Testing Library + Supertest would be the add).
 
 ---
 
 ## 📄 License
-MIT — built as a full-stack reference implementation.
+
+[MIT](./LICENSE) © 2026 Tushar — built as a full-stack reference implementation.
