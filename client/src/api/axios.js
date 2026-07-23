@@ -23,9 +23,19 @@ api.interceptors.request.use((config) => {
 });
 
 // ── Silent refresh on 401 ───────────────────────────────────────────────
+// The access token lives in memory and expires after ~15 min. When a request
+// comes back 401 (expired), we transparently POST /auth/refresh-token — which
+// reads the httpOnly refresh cookie the browser sends automatically — to get a
+// fresh access token, then replay the original request. The user never sees it.
+//
+// Concurrency ("single-flight"): if several requests 401 at the same moment we
+// must NOT fire a refresh for each. The first request performs the refresh
+// while the rest park in `queue`; once it settles, every queued request either
+// replays with the new token or rejects together if the refresh itself failed.
 let isRefreshing = false;
-let queue = [];
+let queue = []; // requests waiting for the in-flight refresh to resolve
 
+// Release every parked request once the single refresh settles.
 const processQueue = (error, token = null) => {
   queue.forEach((p) => (error ? p.reject(error) : p.resolve(token)));
   queue = [];
@@ -52,7 +62,8 @@ api.interceptors.response.use(
 
     if (status === 401 && !original._retry && !isAuthRoute) {
       if (isRefreshing) {
-        // Queue requests while a refresh is in flight
+        // A refresh is already running — park this request. When the refresh
+        // resolves, `processQueue` hands us the new token below and we replay.
         return new Promise((resolve, reject) => {
           queue.push({ resolve, reject });
         })

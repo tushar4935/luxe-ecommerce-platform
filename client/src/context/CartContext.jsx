@@ -22,6 +22,8 @@ export function CartProvider({ children }) {
   const [subtotal, setSubtotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Guards the one-time guest→server cart merge: it must run once right after
+  // login, not again on every re-render while the user stays authenticated.
   const syncedRef = useRef(false);
 
   // ── Guest helpers ─────────────────────────────────────────────────────
@@ -65,7 +67,11 @@ export function CartProvider({ children }) {
     if (authLoading) return;
 
     if (isAuthenticated) {
-      // On first authenticated render, merge any guest cart then load.
+      // Cart strategy: while logged out the cart lives in localStorage (guest
+      // cart). The moment the user logs in we POST that guest cart to
+      // /cart/sync — the server merges matching lines and caps quantities at
+      // available stock — then we drop the local copy so the DB cart becomes
+      // the single source of truth. Guarded to run once per login.
       (async () => {
         if (!syncedRef.current) {
           syncedRef.current = true;
