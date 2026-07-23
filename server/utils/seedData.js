@@ -233,7 +233,15 @@ const seed = async () => {
   console.log(`🛍  Created ${products.length} products`);
 
   // ── Reviews ────────────────────────────────────────────────────────
-  const reviewTitles = ['Exceptional quality', 'Worth every penny', 'Beautifully made', 'My new favorite', 'Elegant and comfortable', 'Exceeded expectations'];
+  // Give (almost) every product several reviews from DISTINCT customers. The
+  // unique (user, product) index means a product holds at most one review per
+  // customer, so we sample distinct reviewers per product (max = # of customers).
+  const reviewTitles = [
+    'Exceptional quality', 'Worth every penny', 'Beautifully made', 'My new favorite',
+    'Elegant and comfortable', 'Exceeded expectations', 'Instant wardrobe staple',
+    'Looks even better in person', 'Great fit and finish', 'Would buy again',
+    'Understated luxury', 'Impressed with the details',
+  ];
   const reviewComments = [
     'The craftsmanship is outstanding and it fits perfectly. Highly recommend.',
     'Even better in person — the material feels luxurious and the finish is flawless.',
@@ -241,29 +249,51 @@ const seed = async () => {
     'Elegant, versatile, and comfortable. I have already ordered another color.',
     'Great attention to detail. This has become a staple in my wardrobe.',
     'Premium feel without being flashy. Exactly the understated luxury I wanted.',
+    'Runs true to size and the quality justifies the price. No complaints.',
+    'Beautiful piece, though delivery took a little longer than I expected.',
+    'Soft, well-made, and holds its shape after washing. Really pleased.',
+    'I get compliments every time I wear it. Worth the investment.',
+    'Good value for the quality — would happily recommend to a friend.',
+    'Nice materials and a clean, modern cut. Exactly as described.',
   ];
 
-  let reviewCount = 0;
-  const reviewedPairs = new Set();
-  while (reviewCount < 80) {
-    const product = products[rand(0, products.length - 1)];
-    const user = customers[rand(0, customers.length - 1)];
-    const key = `${user._id}-${product._id}`;
-    if (reviewedPairs.has(key)) continue; // honor unique index
-    reviewedPairs.add(key);
+  // Ratings skew positive (like a real catalog) but include the occasional low
+  // score so the star-distribution bars on the product page look natural.
+  const weightedRating = () => {
+    const r = Math.random();
+    if (r < 0.55) return 5;
+    if (r < 0.82) return 4;
+    if (r < 0.93) return 3;
+    if (r < 0.98) return 2;
+    return 1;
+  };
 
-    // eslint-disable-next-line no-await-in-loop
-    await Review.create({
-      user: user._id,
-      product: product._id,
-      rating: rand(3, 5),
-      title: reviewTitles[rand(0, reviewTitles.length - 1)],
-      comment: reviewComments[rand(0, reviewComments.length - 1)],
-      isVerifiedPurchase: Math.random() > 0.4,
-    });
-    reviewCount += 1;
+  const reviewDocs = [];
+  for (const product of products) {
+    // ~88% of products get 2–6 reviews; the rest get 0–1 (e.g. new arrivals).
+    const k = Math.random() < 0.12 ? rand(0, 1) : rand(2, 6);
+    const reviewers = pick(customers, Math.min(k, customers.length)); // distinct users
+    for (const user of reviewers) {
+      reviewDocs.push({
+        user: user._id,
+        product: product._id,
+        rating: weightedRating(),
+        title: reviewTitles[rand(0, reviewTitles.length - 1)],
+        comment: reviewComments[rand(0, reviewComments.length - 1)],
+        isVerifiedPurchase: Math.random() > 0.35,
+      });
+    }
   }
-  console.log(`⭐ Created ${reviewCount} reviews`);
+  // insertMany skips per-document save hooks, so we recompute each product's
+  // rating/numReviews ourselves afterwards — awaited, so it's guaranteed done
+  // before the script exits (the model's post-save hook is fire-and-forget).
+  await Review.insertMany(reviewDocs);
+  const reviewedProductIds = [...new Set(reviewDocs.map((r) => String(r.product)))];
+  for (const pid of reviewedProductIds) {
+    // eslint-disable-next-line no-await-in-loop
+    await Review.recalcProductRating(pid);
+  }
+  console.log(`⭐ Created ${reviewDocs.length} reviews across ${reviewedProductIds.length} products`);
 
   // ── Coupons ────────────────────────────────────────────────────────
   const nextYear = new Date();
@@ -278,17 +308,69 @@ const seed = async () => {
   console.log('🎟  Created 5 coupons');
 
   // ── Sample Orders ──────────────────────────────────────────────────
-  const statuses = ['processing', 'confirmed', 'shipped', 'delivered', 'delivered', 'cancelled'];
-  // A small pool of shipping cities so orders don't all look identical.
+  // Orders are spread across the last 12 months and every lifecycle stage so
+  // the admin dashboard (revenue trend, status doughnut, recent orders) and the
+  // customer order-timeline all have realistic data to render.
   const cities = [
     { street: '128 Madison Avenue, Apt 4B', city: 'New York', state: 'NY', zip: '10016' },
     { street: '742 Valencia Street', city: 'San Francisco', state: 'CA', zip: '94110' },
     { street: '55 Newbury Street, Unit 9', city: 'Boston', state: 'MA', zip: '02116' },
     { street: '300 W Erie Street, Apt 12', city: 'Chicago', state: 'IL', zip: '60654' },
     { street: '1820 Brickell Avenue', city: 'Miami', state: 'FL', zip: '33129' },
+    { street: '410 NW 12th Avenue', city: 'Portland', state: 'OR', zip: '97209' },
   ];
 
-  for (let i = 0; i < 25; i += 1) {
+  // Explicit plan → guarantees every lifecycle stage appears (not left to chance),
+  // in roughly realistic proportions (most orders complete, a few reversed).
+  const statusPlan = [
+    ...Array(13).fill('delivered'),
+    ...Array(3).fill('returned'),
+    ...Array(4).fill('cancelled'),
+    ...Array(6).fill('shipped'),
+    ...Array(5).fill('confirmed'),
+    ...Array(5).fill('processing'),
+  ];
+  // Fisher–Yates shuffle so created-at order isn't grouped by status.
+  for (let j = statusPlan.length - 1; j > 0; j -= 1) {
+    const r = Math.floor(Math.random() * (j + 1));
+    [statusPlan[j], statusPlan[r]] = [statusPlan[r], statusPlan[j]];
+  }
+  // How far back (in months) each stage tends to sit: completed orders are
+  // older, open orders recent — while still spreading across the 12-month chart.
+  const ageBucket = {
+    delivered: [2, 11], returned: [4, 11], cancelled: [3, 11],
+    shipped: [1, 3], confirmed: [0, 2], processing: [0, 1],
+  };
+
+  // Build a believable status timeline for each stage, timestamps stepping forward.
+  const noteFor = {
+    processing: 'Order placed',
+    confirmed: 'Payment confirmed',
+    shipped: 'Shipped via courier',
+    delivered: 'Delivered to customer',
+    cancelled: 'Cancelled by customer',
+    returned: 'Return processed',
+  };
+  const chainFor = (status, start) => {
+    const steps = {
+      processing: ['processing'],
+      confirmed: ['processing', 'confirmed'],
+      shipped: ['processing', 'confirmed', 'shipped'],
+      delivered: ['processing', 'confirmed', 'shipped', 'delivered'],
+      cancelled: ['processing', 'cancelled'],
+      returned: ['processing', 'confirmed', 'shipped', 'delivered', 'returned'],
+    }[status];
+    let t = start.getTime();
+    return steps.map((s) => {
+      const entry = { status: s, note: noteFor[s], timestamp: new Date(t) };
+      t += rand(12, 48) * 3600 * 1000; // 0.5–2 days between steps
+      return entry;
+    });
+  };
+
+  const ORDER_COUNT = statusPlan.length;
+  const orderStatusTally = {};
+  for (let i = 0; i < ORDER_COUNT; i += 1) {
     const user = customers[rand(0, customers.length - 1)];
     const loc = cities[rand(0, cities.length - 1)];
     const sampleAddress = {
@@ -297,6 +379,7 @@ const seed = async () => {
       country: 'United States',
       ...loc,
     };
+
     const lineItems = pick(products, rand(1, 3)).map((p) => {
       const qty = rand(1, 3);
       const unit = p.discountPrice && p.discountPrice > 0 ? p.discountPrice : p.price;
@@ -316,25 +399,52 @@ const seed = async () => {
     const shippingCost = itemsTotal >= 100 ? 0 : 9.99;
     const tax = Math.round(itemsTotal * 0.1 * 100) / 100;
     const totalAmount = Math.round((itemsTotal + shippingCost + tax) * 100) / 100;
-    const status = statuses[i % statuses.length];
+
+    // Age each order by its lifecycle stage (completed = older, open = recent),
+    // spread across the last 12 months so the revenue chart shows a full trend.
+    const status = statusPlan[i];
+    const [loMonth, hiMonth] = ageBucket[status];
+    const monthsAgo = rand(loMonth, hiMonth);
+    const orderDate = new Date();
+    orderDate.setMonth(orderDate.getMonth() - monthsAgo);
+    orderDate.setDate(rand(1, 27));
+    orderDate.setHours(rand(8, 20), rand(0, 59), 0, 0);
+
+    const method = ['card', 'paypal', 'cod'][rand(0, 2)];
+    // Payment state follows the lifecycle: paid once fulfilled, refunded when
+    // reversed, pending while a COD/processing order is still open.
+    let paymentStatus;
+    if (status === 'delivered' || status === 'shipped') paymentStatus = 'paid';
+    else if (status === 'returned') paymentStatus = 'refunded';
+    else if (status === 'cancelled') paymentStatus = method === 'cod' ? 'pending' : 'refunded';
+    else if (status === 'confirmed') paymentStatus = method === 'cod' ? 'pending' : 'paid';
+    else paymentStatus = 'pending'; // processing
+    orderStatusTally[status] = (orderStatusTally[status] || 0) + 1;
 
     // eslint-disable-next-line no-await-in-loop
-    await Order.create({
+    const order = await Order.create({
       user: user._id,
       items: lineItems,
       shippingAddress: sampleAddress,
-      paymentMethod: ['card', 'paypal', 'cod'][rand(0, 2)],
-      paymentStatus: status === 'delivered' ? 'paid' : status === 'cancelled' ? 'refunded' : 'pending',
+      paymentMethod: method,
+      paymentStatus,
       orderStatus: status,
-      statusHistory: [{ status: 'processing', note: 'Order placed', timestamp: new Date(Date.now() - rand(1, 60) * 86400000) }],
+      statusHistory: chainFor(status, orderDate),
       itemsTotal,
       shippingCost,
       tax,
       totalAmount,
-      createdAt: new Date(Date.now() - rand(1, 300) * 86400000),
     });
+    // Backdate createdAt. Mongoose makes `createdAt` immutable when timestamps
+    // are enabled (and ignores one passed to create()), so we write it through
+    // the native driver, which bypasses that immutability and all middleware.
+    // eslint-disable-next-line no-await-in-loop
+    await Order.collection.updateOne(
+      { _id: order._id },
+      { $set: { createdAt: orderDate } }
+    );
   }
-  console.log('📦 Created 25 sample orders');
+  console.log(`📦 Created ${ORDER_COUNT} orders →`, JSON.stringify(orderStatusTally));
 
   console.log('\n✅ Seed complete!');
   console.log('   Admin    → admin@luxe.com / Admin@123');
