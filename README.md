@@ -9,7 +9,7 @@
 ![Frontend on Vercel](https://img.shields.io/badge/Frontend-Vercel-000000?logo=vercel&logoColor=white)
 ![Backend on Render](https://img.shields.io/badge/Backend-Render-46E3B7?logo=render&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-c9a84c.svg)
-![Last commit](https://img.shields.io/github/last-commit/tushar4935/Ecommerce-Website)
+![Last commit](https://img.shields.io/github/last-commit/tushar4935/luxe-ecommerce-platform)
 
 A full-featured **MERN** ecommerce project — a customer storefront **and** an admin
 dashboard — with JWT auth (refresh-token **rotation**), URL-synced product filtering,
@@ -175,7 +175,7 @@ order's history stays correct even if the product is later edited or deleted.
 
 ```bash
 # 1. Clone
-git clone https://github.com/tushar4935/Ecommerce-Website.git luxe-ecommerce
+git clone https://github.com/tushar4935/luxe-ecommerce-platform.git luxe-ecommerce
 cd luxe-ecommerce
 
 # 2. Backend
