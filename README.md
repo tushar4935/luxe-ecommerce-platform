@@ -24,14 +24,15 @@ in-depth portfolio/reference implementation of a real store's moving parts.
 
 ## 🔗 Live Demo
 
-> 🚧 **Deploying now.** The live URL is dropped in here as soon as the backend (Render)
-> and frontend (Vercel) are up. Until then, follow [Local Setup](#-local-setup) — every
-> flow works locally.
+### ▶️ **https://luxe-ecommerce-platform-pied.vercel.app**
 
 | Surface | URL |
 | --- | --- |
-| 🛍 Storefront | `https://…` _(coming)_ |
-| 🔐 Admin dashboard | `https://…/admin` _(log in with the admin account below)_ |
+| 🛍 Storefront | https://luxe-ecommerce-platform-pied.vercel.app |
+| 🔐 Admin dashboard | https://luxe-ecommerce-platform-pied.vercel.app/admin *(sign in with the admin account below)* |
+
+> ⏳ The backend API runs on Render's free tier, which sleeps after ~15 min idle — the
+> **first** request may take ~30–50s to wake it, then everything is fast.
 
 ### Demo credentials _(created by `npm run seed`)_
 
