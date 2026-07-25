@@ -113,8 +113,8 @@ _Additional demo customers `customer2@luxe.com` … `customer6@luxe.com` share t
 ## 🏗 Architecture
 
 A classic split: a **React single-page app** talks to a **stateless Express REST API**,
-which persists to **MongoDB**. Optional third-party services (Cloudinary, SMTP, Razorpay)
-are wired in but degrade gracefully when their keys are absent.
+which persists to **MongoDB**. Optional third-party services (Cloudinary, SMTP, Stripe,
+Razorpay) are wired in but degrade gracefully when their keys are absent.
 
 ```mermaid
 flowchart LR
@@ -123,7 +123,8 @@ flowchart LR
   A --> D[("MongoDB Atlas")]
   A -.->|optional| C["Cloudinary<br/>(images)"]
   A -.->|optional| M["SMTP<br/>(email)"]
-  A -.->|optional| R["Razorpay<br/>(test-mode payments)"]
+  A -.->|optional| S["Stripe<br/>(card, USD)"]
+  A -.->|optional| R["Razorpay<br/>(UPI/card, INR)"]
 ```
 
 **Auth flow (why there are two tokens).** On login the API returns a short-lived
@@ -156,6 +157,9 @@ erDiagram
 Order line items **snapshot** the product name, price and image at purchase time, so an
 order's history stays correct even if the product is later edited or deleted.
 
+> **Deep-dive:** see [`ARCHITECTURE.md`](ARCHITECTURE.md) for how auth rotation, product
+> filtering, cart/checkout, and the analytics aggregation pipelines are built.
+
 ---
 
 ## ✅ Prerequisites
@@ -164,9 +168,9 @@ order's history stays correct even if the product is later edited or deleted.
 - **MongoDB** running locally (`mongodb://127.0.0.1:27017`) or a MongoDB Atlas URI
 - *(Optional)* a **Cloudinary** account for real image uploads
 - *(Optional)* SMTP credentials (e.g. a Gmail App Password) for real emails
-- *(Optional)* **Razorpay** test keys to enable live test-mode card payments
+- *(Optional)* **Stripe** and/or **Razorpay** test keys to enable live test-mode payments
 
-> Cloudinary, SMTP and Razorpay are **optional in development**: without them, the app
+> Cloudinary, SMTP, Stripe and Razorpay are **optional in development**: without them, the app
 > uses deterministic placeholder images, logs emails to the server console, and runs a
 > no-charge demo checkout — every flow still works end-to-end.
 
@@ -208,7 +212,9 @@ Open **http://localhost:5173**.
 | `JWT_ACCESS_EXPIRE` / `JWT_REFRESH_EXPIRE` | e.g. `15m` / `7d` |
 | `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | Optional — image uploads |
 | `EMAIL_HOST` / `EMAIL_PORT` / `EMAIL_USER` / `EMAIL_PASS` / `EMAIL_FROM` | Optional — Nodemailer SMTP |
-| `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` / `RAZORPAY_CURRENCY` | Optional — test-mode card payments (blank = demo checkout) |
+| `STRIPE_PUBLISHABLE_KEY` / `STRIPE_SECRET_KEY` | Optional — Stripe card payments in USD (blank = demo checkout) |
+| `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | Optional — Razorpay UPI/card in INR (USD total converted at a live FX rate) |
+| `USD_TO_INR_RATE` | Optional — fallback FX rate used only if the live rate API is unreachable |
 | `FRONTEND_URL` | Frontend origin for CORS + email links (`http://localhost:5173`) |
 
 **`client/.env`**
@@ -281,8 +287,9 @@ Base URL: `http://localhost:5000/api`. All responses are JSON with a
 `GET /` · `GET /:id` · `POST /` *(place order)* · `POST /:id/cancel`
 
 ### Payments — `/payments`
-`GET /config` *(public — is online payment enabled?)* ·
-`POST /razorpay/order` *(protected — create a Razorpay order for the cart)*
+`GET /config` *(public — which gateways are enabled + current USD→INR rate)* ·
+`POST /stripe/payment-intent` *(protected — create a Stripe PaymentIntent, USD)* ·
+`POST /razorpay/order` *(protected — create a Razorpay order, INR)*
 
 ### Reviews — `/reviews`
 `GET /` *(admin, all)* · `GET /product/:productId` · `POST /product/:productId` ·
@@ -358,15 +365,17 @@ Content-Type: application/json
 ### Optional services
 - **Cloudinary** — add the three keys to store uploaded product/category/avatar images;
   without them the app serves placeholder images.
-- **Razorpay** — add test keys to enable live test-mode card payments; without them,
-  card checkout runs a no-charge demo and Cash on Delivery still works.
+- **Stripe** — add `STRIPE_PUBLISHABLE_KEY` + `STRIPE_SECRET_KEY` to enable card payments
+  in USD; without them, card checkout runs a no-charge demo.
+- **Razorpay** — add `RAZORPAY_KEY_ID` + `RAZORPAY_KEY_SECRET` to enable UPI/card in INR
+  (the USD total is converted at a live exchange rate). Cash on Delivery always works.
 
 ---
 
 ## ⚠️ Known Limitations & Notes
-- **Payment is deliberately not production-grade.** Cash on Delivery is fully functional;
-  card checkout uses Razorpay **test mode** (or a no-charge demo without keys). Do not
-  treat this as a PCI-compliant, real-money checkout.
+- **Payment runs in test mode by design.** Cash on Delivery is fully functional; card
+  checkout uses **Stripe** and/or **Razorpay** test keys (or a no-charge demo without
+  keys). This is not wired for real-money, PCI-scoped production charges.
 - No real-time order tracking (would add WebSockets/SSE).
 - Email verification is optional and non-blocking by default.
 - Single-currency; i18n/multi-currency could be added.
