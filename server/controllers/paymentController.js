@@ -57,7 +57,8 @@ const createStripePaymentIntent = asyncHandler(async (req, res) => {
   const intent = await getStripe().paymentIntents.create({
     amount: Math.round(totalAmount * 100), // smallest USD unit (cents)
     currency: 'usd',
-    automatic_payment_methods: { enabled: true },
+    // Card-only keeps confirmation fully in-page (no redirect back to the app).
+    payment_method_types: ['card'],
     metadata: { userId: String(req.user._id) },
   });
 
