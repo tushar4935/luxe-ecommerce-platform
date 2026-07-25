@@ -1,9 +1,9 @@
-# LEARNINGS — How LUXE Works (in plain English)
+# Architecture & Design Decisions
 
-A study guide for the four systems most worth understanding — and explaining in an
-interview: **auth + refresh rotation**, **product filtering**, **cart & checkout**, and
-**admin analytics**. Each section says *what problem it solves*, *how it works*, *why it's
-built that way*, and gives a short **"say this in an interview"** soundbite.
+This document walks through the four subsystems with the most moving parts —
+**authentication with refresh-token rotation**, **product filtering**, **cart &
+checkout**, and **admin analytics**. For each it covers the problem it solves, how
+it's implemented, and the reasoning behind the approach.
 
 ---
 
@@ -27,7 +27,7 @@ read it.
   tokens. It sits in an **httpOnly** cookie, so client JS can't read it — which defends
   against XSS token theft.
 
-**Rotation (the interesting part).** Every time the client refreshes
+**Rotation.** Every time the client refreshes
 ([`POST /auth/refresh-token`](server/controllers/authController.js)), the server:
 1. verifies the incoming refresh token against a **hashed copy stored in the database**,
 2. **deletes that stored record** (the old token is now dead), and
@@ -49,16 +49,16 @@ new access token, and **replays the original request** — invisibly. If several
 `401` at once, only the **first** triggers a refresh; the rest wait in a queue and replay
 with the new token. This "single-flight" guard avoids a stampede of refresh calls.
 
-**Cross-origin note (why it works on the live site).** Frontend (Vercel) and API (Render)
-are different origins, so the cookie must be `SameSite=None; Secure` in production
+**Cross-origin considerations.** Frontend (Vercel) and API (Render) are different origins,
+so the cookie must be `SameSite=None; Secure` in production
 ([`generateTokens.js`](server/utils/generateTokens.js#L60)), the API must set `trust proxy`
-(cookie is `Secure` behind Render's load balancer), and CORS must send a **specific**
+(the cookie is `Secure` behind Render's load balancer), and CORS must send a **specific**
 origin with `credentials: true` (a wildcard `*` is illegal with credentials).
 
-> **Say this in an interview:** *"I use short-lived JWT access tokens in memory plus a
-> rotating refresh token in an httpOnly cookie. Refresh tokens are hashed in the DB and
-> single-use — each refresh rotates them — so XSS can't read the cookie and a stolen
-> refresh token dies on next use."*
+> **Summary.** Short-lived JWT access tokens are held in memory; a rotating refresh token
+> lives in an httpOnly cookie and is persisted only as a SHA-256 hash. Each refresh rotates
+> (invalidates) the token, so an XSS attacker cannot read the cookie and a stolen refresh
+> token stops working on the next legitimate refresh.
 
 ---
 
@@ -93,9 +93,9 @@ state in the URL query string via `useSearchParams` — not React state. So:
   doesn't fire a request per keystroke,
 - changing any filter resets pagination to page 1.
 
-> **Say this in an interview:** *"Filtering is a reusable query builder — search/filter/
-> sort/paginate chained on a Mongoose query — and the React side keeps filter state in the
-> URL, so results are shareable and debounced instead of hammering the API."*
+> **Summary.** Filtering is a reusable query builder — search/filter/sort/paginate chained
+> on a Mongoose query — and the React side keeps filter state in the URL, so results are
+> shareable and debounced rather than firing a request per keystroke.
 
 ---
 
@@ -125,17 +125,29 @@ transactional-in-spirit: it re-validates stock, **re-computes totals from the DB
 later edited or deleted), decrements stock + bumps `sold`, records coupon usage, clears the
 cart, and emails a confirmation.
 
-**Payment** ([`razorpay.js`](server/utils/razorpay.js)):
-- **COD** → order saved as `pending`.
-- **Card + Razorpay keys present** → the browser pays in Razorpay's window; the server
-  **verifies the HMAC-SHA256 signature** before marking the order `paid`. Never trust the
-  client's "I paid" claim — verify the signature.
-- **Card/PayPal without keys** → a no-charge demo marks it `paid` so the flow completes.
+**Payment.** The catalog is priced in USD. The checkout renders whichever gateways are
+configured for the environment ([`paymentController.js`](server/controllers/paymentController.js)),
+and the charged amount is always computed server-side from the DB cart — never sent by the
+client:
+- **Stripe (card, USD)** — the browser confirms a PaymentIntent in-page
+  ([`stripe.js`](server/utils/stripe.js),
+  [`StripePaymentForm.jsx`](client/src/components/cart/StripePaymentForm.jsx)). The server
+  then re-fetches the PaymentIntent and checks its `status`, `currency`, and exact `amount`
+  before marking the order `paid`.
+- **Razorpay (UPI/card, INR)** — the USD total is converted at a live, cached exchange rate
+  ([`exchangeRate.js`](server/utils/exchangeRate.js)), the user pays in Razorpay's window,
+  and the server verifies the **HMAC-SHA256 signature**
+  ([`razorpay.js`](server/utils/razorpay.js)) before marking `paid`.
+- **COD** → order saved as `pending`. **No gateway keys set** → a no-charge demo marks the
+  order `paid` so the flow still completes end-to-end.
 
-> **Say this in an interview:** *"The cart follows the user — guest cart in localStorage
-> merges into the DB cart on login. All totals and stock checks are recomputed server-side
-> at checkout, order items are snapshotted, and Razorpay payments are only marked paid
-> after verifying the gateway's HMAC signature."*
+The rule throughout: never trust a client's "I paid" claim — re-verify with the gateway
+server-side before changing order state.
+
+> **Summary.** The cart follows the user (guest cart in localStorage merges into the DB cart
+> on login). Totals and stock are recomputed server-side at checkout, order line items are
+> snapshotted, and a payment is only marked paid after the gateway is verified server-side —
+> Stripe by re-fetching the PaymentIntent, Razorpay by checking its HMAC signature.
 
 ---
 
@@ -158,13 +170,12 @@ dashboard fires several **aggregation pipelines** in parallel (`Promise.all`):
    0** — so the line chart always shows all 12 months, even ones with no sales, instead of
    skipping gaps.
 
-This is exactly why the [seed](server/utils/seedData.js) backdates orders across the last
-12 months: so this chart renders a real trend rather than a single spike.
+This is why the [seed](server/utils/seedData.js) backdates orders across the last 12
+months: so the chart renders a real trend rather than a single spike.
 
-> **Say this in an interview:** *"The dashboard runs MongoDB aggregation pipelines —
-> `$match`, `$group`, `$sum`/`$avg` — so summarisation happens in the database. Revenue is
-> grouped by month, then I fill empty months with zero in code so the chart is a continuous
-> 12-month trend."*
+> **Summary.** The dashboard runs MongoDB aggregation pipelines (`$match`, `$group`,
+> `$sum`/`$avg`) so summarisation happens in the database. Revenue is grouped by month, then
+> empty months are filled with zero in code to produce a continuous 12-month trend.
 
 ---
 
@@ -174,5 +185,5 @@ This is exactly why the [seed](server/utils/seedData.js) backdates orders across
 |--------|---------|----------|
 | Auth + rotation | `authController.js`, `generateTokens.js`, `authMiddleware.js` | `AuthContext.jsx`, `api/axios.js` |
 | Product filtering | `apiFeatures.js`, `productController.js` | `Shop.jsx`, `components/products/ProductFilters.jsx` |
-| Cart & checkout | `cartController.js`, `orderController.js`, `orderTotals.js`, `razorpay.js` | `CartContext.jsx`, `pages/Checkout.jsx` |
+| Cart & checkout | `cartController.js`, `orderController.js`, `orderTotals.js`, `paymentController.js`, `stripe.js`, `razorpay.js`, `exchangeRate.js` | `CartContext.jsx`, `pages/Checkout.jsx`, `components/cart/StripePaymentForm.jsx` |
 | Admin analytics | `adminController.js` | `pages/admin/Dashboard.jsx` |
