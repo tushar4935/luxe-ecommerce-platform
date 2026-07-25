@@ -1,14 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Check, CreditCard, Wallet, Banknote, Lock, ChevronLeft } from 'lucide-react';
+import { Check, CreditCard, Banknote, Lock, ChevronLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
+import StripePaymentForm from '../components/cart/StripePaymentForm';
 import { computeTotals, readSavedCoupon, clearSavedCoupon } from '../components/cart/CartSummary';
 import { useCart } from '../hooks/useCart';
 import { useAuth } from '../hooks/useAuth';
 import { orderApi } from '../api/orderApi';
-import { paymentApi, loadRazorpayScript } from '../api/paymentApi';
+import { paymentApi, loadRazorpayScript, getStripePromise } from '../api/paymentApi';
 import { userApi } from '../api/userApi';
 import { getErrorMessage } from '../api/axios';
 import { formatCurrency } from '../utils/formatCurrency';
@@ -37,13 +38,41 @@ export default function Checkout() {
   const [selectedAddressId, setSelectedAddressId] = useState('new');
   const [address, setAddress] = useState({ ...emptyAddress, fullName: user?.name || '', phone: user?.phone || '' });
   const [saveAddress, setSaveAddress] = useState(false);
-  const [payment, setPayment] = useState('card');
+  const [payment, setPayment] = useState('cod');
   const [errors, setErrors] = useState({});
   const [placing, setPlacing] = useState(false);
-  const [razorpay, setRazorpay] = useState({ enabled: false, keyId: null, currency: 'INR' });
+  const [stripeCfg, setStripeCfg] = useState({ enabled: false, publishableKey: null });
+  const [razorpayCfg, setRazorpayCfg] = useState({ enabled: false, keyId: null, currency: 'INR' });
+  const [usdToInr, setUsdToInr] = useState(null);
+  const [clientSecret, setClientSecret] = useState(null);
 
   const coupon = readSavedCoupon();
   const { shipping, tax, total, discounted } = computeTotals(subtotal, coupon?.discount || 0);
+
+  // Stripe.js instance (memoized by publishable key) + the ≈INR preview amount.
+  const stripePromise = useMemo(() => getStripePromise(stripeCfg.publishableKey), [stripeCfg.publishableKey]);
+  const inrApprox = usdToInr ? Math.round(total * usdToInr) : null;
+
+  // Build the payment options from whichever gateways are configured.
+  const paymentOptions = useMemo(() => {
+    const opts = [];
+    if (stripeCfg.enabled) {
+      opts.push({ id: 'stripe', label: 'Card — Pay in USD', icon: CreditCard, sub: 'Secure payment via Stripe' });
+    }
+    if (razorpayCfg.enabled) {
+      opts.push({
+        id: 'razorpay',
+        label: 'UPI / Card — Pay in INR',
+        icon: CreditCard,
+        sub: inrApprox ? `Razorpay · ≈ ₹${inrApprox.toLocaleString('en-IN')}` : 'Secure payment via Razorpay',
+      });
+    }
+    if (!stripeCfg.enabled && !razorpayCfg.enabled) {
+      opts.push({ id: 'card', label: 'Credit / Debit Card', icon: CreditCard, sub: 'Demo card — no real charge' });
+    }
+    opts.push({ id: 'cod', label: 'Cash on Delivery', icon: Banknote, sub: 'Pay when you receive' });
+    return opts;
+  }, [stripeCfg.enabled, razorpayCfg.enabled, inrApprox]);
 
   // Redirect if cart empty
   useEffect(() => {
@@ -74,13 +103,34 @@ export default function Checkout() {
       .catch(() => {});
   }, []);
 
-  // Discover whether online (Razorpay) payment is available.
+  // Discover which gateways are available + the live USD→INR rate, then default
+  // to the first available online option (falling back to COD).
   useEffect(() => {
     paymentApi
       .getConfig()
-      .then((res) => setRazorpay(res.data.razorpay || { enabled: false }))
+      .then((res) => {
+        const s = res.data.stripe || { enabled: false };
+        const r = res.data.razorpay || { enabled: false };
+        setStripeCfg(s);
+        setRazorpayCfg(r);
+        setUsdToInr(res.data.usdToInr || null);
+        setPayment(s.enabled ? 'stripe' : r.enabled ? 'razorpay' : 'cod');
+      })
       .catch(() => {});
   }, []);
+
+  // Create a Stripe PaymentIntent when the user reaches Review with Stripe
+  // selected (recreated if they change coupon/gateway and return).
+  useEffect(() => {
+    if (step === 2 && payment === 'stripe' && stripeCfg.enabled) {
+      setClientSecret(null);
+      paymentApi
+        .createStripePaymentIntent({ couponCode: coupon?.code })
+        .then((res) => setClientSecret(res.data.clientSecret))
+        .catch((err) => toast.error(getErrorMessage(err)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, payment, stripeCfg.enabled]);
 
   const pickSaved = (a) => {
     setSelectedAddressId(a._id);
@@ -117,16 +167,20 @@ export default function Checkout() {
   };
   const back = () => setStep((s) => Math.max(0, s - 1));
 
-  // Create the order on our backend. For Razorpay, `paymentResult` carries the
-  // ids + signature the gateway returned, which the server verifies before
-  // marking the order paid.
-  const finalizeOrder = async (paymentResult) => {
+  // Create the order on our backend. Maps the selected option → the API's
+  // paymentMethod + gateway, attaching the gateway-specific proof in `extra`
+  // (Stripe PaymentIntent id or Razorpay signature) which the server verifies.
+  const finalizeOrder = async (extra = {}) => {
+    const paymentMethod = payment === 'cod' ? 'cod' : 'card';
+    const gateway =
+      payment === 'stripe' ? 'stripe' : payment === 'razorpay' ? 'razorpay' : undefined;
     const { data } = await orderApi.create({
       shippingAddress: address,
-      paymentMethod: payment,
+      paymentMethod,
+      gateway,
       couponCode: coupon?.code,
       notes: '',
-      razorpay: paymentResult,
+      ...extra,
     });
     clearSavedCoupon();
     await clearCart();
@@ -165,9 +219,11 @@ export default function Checkout() {
       handler: async (response) => {
         try {
           await finalizeOrder({
-            razorpayOrderId: response.razorpay_order_id,
-            razorpayPaymentId: response.razorpay_payment_id,
-            razorpaySignature: response.razorpay_signature,
+            razorpay: {
+              razorpayOrderId: response.razorpay_order_id,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature,
+            },
           });
         } catch (err) {
           toast.error(getErrorMessage(err));
@@ -200,14 +256,14 @@ export default function Checkout() {
         }
       }
 
-      // Card + Razorpay configured → pay in the gateway window, then finalize
-      // (order creation + setPlacing happen inside the Razorpay callbacks).
-      if (payment === 'card' && razorpay.enabled) {
+      // Razorpay → pay in the gateway window, then finalize inside its callbacks.
+      if (payment === 'razorpay' && razorpayCfg.enabled) {
         await payWithRazorpay();
         return;
       }
 
-      // COD / PayPal / demo card → create the order directly.
+      // Stripe has its own inline "Pay" button (Review step), so it never reaches
+      // here. COD / demo-card → create the order directly.
       await finalizeOrder();
       setPlacing(false);
     } catch (err) {
@@ -338,16 +394,7 @@ export default function Checkout() {
             <div className="animate-fade-in">
               <h2 className="mb-5 font-serif text-2xl text-textPrimary">Payment Method</h2>
               <div className="space-y-3">
-                {[
-                  {
-                    id: 'card',
-                    label: razorpay.enabled ? 'UPI / Card / Netbanking' : 'Credit / Debit Card',
-                    icon: CreditCard,
-                    sub: razorpay.enabled ? 'Secure payment via Razorpay' : 'Demo card — no real charge',
-                  },
-                  { id: 'paypal', label: 'PayPal', icon: Wallet, sub: 'Pay with your PayPal account' },
-                  { id: 'cod', label: 'Cash on Delivery', icon: Banknote, sub: 'Pay when you receive' },
-                ].map((m) => (
+                {paymentOptions.map((m) => (
                   <label
                     key={m.id}
                     className={`flex cursor-pointer items-center gap-4 rounded-card border p-4 transition-colors ${
@@ -370,23 +417,35 @@ export default function Checkout() {
                 ))}
               </div>
 
+              {payment === 'stripe' && (
+                <div className="mt-6 rounded-card border border-border bg-surface p-5 text-sm text-textSecondary">
+                  <p className="flex items-center gap-1.5 text-textPrimary">
+                    <Lock size={14} className="text-accent" /> You&apos;ll enter your card securely on the next step (Review).
+                  </p>
+                  <p className="mt-1 text-xs text-textMuted">
+                    Test card <code className="rounded bg-card px-1">4242 4242 4242 4242</code>, any future expiry, any CVC &amp; ZIP.
+                  </p>
+                </div>
+              )}
+              {payment === 'razorpay' && (
+                <div className="mt-6 rounded-card border border-border bg-surface p-5 text-sm text-textSecondary">
+                  <div className="space-y-1.5">
+                    <p className="flex items-center gap-1.5 text-textPrimary">
+                      <Lock size={14} className="text-accent" /> You&apos;ll pay securely in the Razorpay window
+                      {inrApprox ? ` (≈ ₹${inrApprox.toLocaleString('en-IN')})` : ''}.
+                    </p>
+                    <p className="text-xs text-textMuted">
+                      Test mode — UPI <code className="rounded bg-card px-1">success@razorpay</code> or card{' '}
+                      <code className="rounded bg-card px-1">4111 1111 1111 1111</code>, any future expiry &amp; any CVV.
+                    </p>
+                  </div>
+                </div>
+              )}
               {payment === 'card' && (
                 <div className="mt-6 rounded-card border border-border bg-surface p-5 text-sm text-textSecondary">
-                  {razorpay.enabled ? (
-                    <div className="space-y-1.5">
-                      <p className="flex items-center gap-1.5 text-textPrimary">
-                        <Lock size={14} className="text-accent" /> You&apos;ll complete payment securely in the Razorpay window.
-                      </p>
-                      <p className="text-xs text-textMuted">
-                        Test mode — pay with UPI <code className="rounded bg-card px-1">success@razorpay</code> or card{' '}
-                        <code className="rounded bg-card px-1">4111 1111 1111 1111</code>, any future expiry &amp; any CVV.
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="flex items-center gap-1.5">
-                      <Lock size={14} className="text-accent" /> Demo mode — no real charge. Add Razorpay test keys to enable live test payments.
-                    </p>
-                  )}
+                  <p className="flex items-center gap-1.5">
+                    <Lock size={14} className="text-accent" /> Demo mode — no real charge.
+                  </p>
                 </div>
               )}
             </div>
@@ -432,13 +491,37 @@ export default function Checkout() {
                 </div>
                 <div className="rounded-card border border-border p-4 text-sm">
                   <p className="mb-2 font-medium text-textPrimary">Payment</p>
-                  <p className="capitalize text-textSecondary">
-                    {payment === 'cod' ? 'Cash on Delivery' : payment}
+                  <p className="text-textSecondary">
+                    {payment === 'cod'
+                      ? 'Cash on Delivery'
+                      : payment === 'stripe'
+                      ? 'Card · Stripe (USD)'
+                      : payment === 'razorpay'
+                      ? 'UPI / Card · Razorpay (INR)'
+                      : 'Card'}
                   </p>
                   <p className="mt-2 font-medium text-textPrimary">Contact</p>
                   <p className="text-textSecondary">{email}</p>
                 </div>
               </div>
+
+              {payment === 'stripe' && stripeCfg.enabled && (
+                <div className="mt-6 rounded-card border border-border bg-surface p-5">
+                  <p className="mb-3 flex items-center gap-1.5 text-sm text-textPrimary">
+                    <Lock size={14} className="text-accent" /> Card details · Stripe (USD)
+                  </p>
+                  {clientSecret ? (
+                    <StripePaymentForm
+                      stripePromise={stripePromise}
+                      clientSecret={clientSecret}
+                      amountLabel={formatCurrency(total)}
+                      onPaid={(piId) => finalizeOrder({ stripePaymentIntentId: piId })}
+                    />
+                  ) : (
+                    <p className="text-sm text-textSecondary">Preparing secure payment…</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -458,6 +541,8 @@ export default function Checkout() {
 
             {step < STEPS.length - 1 ? (
               <Button onClick={next}>Continue</Button>
+            ) : payment === 'stripe' && stripeCfg.enabled ? (
+              <span className="text-xs text-textMuted">Complete card payment above to place your order</span>
             ) : (
               <Button onClick={placeOrder} loading={placing}>
                 Place Order · {formatCurrency(total)}

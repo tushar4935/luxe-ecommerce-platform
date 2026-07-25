@@ -1,10 +1,25 @@
+import { loadStripe } from '@stripe/stripe-js';
 import api from './axios';
 
 export const paymentApi = {
-  // Whether online payment is available + the publishable key to open checkout.
+  // Which gateways are enabled (+ publishable keys) and the current USD→INR rate.
   getConfig: () => api.get('/payments/config'),
-  // Create a Razorpay order for the current cart (amount computed server-side).
+  // Create a Stripe PaymentIntent for the current cart (amount in USD, server-side).
+  createStripePaymentIntent: (payload) => api.post('/payments/stripe/payment-intent', payload),
+  // Create a Razorpay order for the current cart (amount converted to INR, server-side).
   createRazorpayOrder: (payload) => api.post('/payments/razorpay/order', payload),
+};
+
+// Load + memoize the Stripe.js instance for a given publishable key.
+let stripePromise = null;
+let loadedKey = null;
+export const getStripePromise = (publishableKey) => {
+  if (!publishableKey) return null;
+  if (!stripePromise || loadedKey !== publishableKey) {
+    loadedKey = publishableKey;
+    stripePromise = loadStripe(publishableKey);
+  }
+  return stripePromise;
 };
 
 // Inject the Razorpay checkout script once; resolves true when ready.
