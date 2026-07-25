@@ -8,8 +8,8 @@ free tiers and takes about **30–45 minutes** the first time.
 Your app has 3 parts, so it goes to 3 places:
 
 ```
-  React frontend  ──►  Vercel        https://luxe-shop.vercel.app   (what visitors open)
-  Express backend ──►  Render        https://luxe-api.onrender.com  (the API)
+  React frontend  ──►  Vercel        https://luxe-ecommerce-platform-pied.vercel.app   (what visitors open)
+  Express backend ──►  Render        https://luxe-ecommerce-platform.onrender.com     (the API)
   MongoDB data    ──►  MongoDB Atlas (cloud database)
 ```
 
@@ -106,14 +106,15 @@ pushing, confirm on GitHub that there is **no `.env` file** in `server/`.
    | `JWT_ACCESS_EXPIRE` | `15m` |
    | `JWT_REFRESH_EXPIRE` | `7d` |
    | `FRONTEND_URL` | *leave blank for now — we set it in Step 4* |
-   | `RAZORPAY_KEY_ID` | *blank (demo) or your test key* |
-   | `RAZORPAY_KEY_SECRET` | *blank or your test secret* |
-   | `RAZORPAY_CURRENCY` | `INR` |
+   | `STRIPE_PUBLISHABLE_KEY` | *your `pk_test_...` key — enables card payments (USD)* |
+   | `STRIPE_SECRET_KEY` | *your `sk_test_...` key* |
+   | `RAZORPAY_KEY_ID` | *optional — leave blank unless you also add Razorpay (INR)* |
+   | `RAZORPAY_KEY_SECRET` | *optional — leave blank unless you also add Razorpay* |
 
 5. **Create Web Service**. Wait for the build to finish (a few minutes). When it's
-   live, copy the URL at the top, e.g. `https://luxe-api.onrender.com`.
+   live, copy the URL at the top, e.g. `https://luxe-ecommerce-platform.onrender.com`.
 
-   ✅ Test it: open `https://luxe-api.onrender.com/api/health` — you should see
+   ✅ Test it: open `https://luxe-ecommerce-platform.onrender.com/api/health` — you should see
    `{"success":true,"message":"LUXE API is running"...}`.
 
    📌 **Save this as your backend URL.**
@@ -139,11 +140,11 @@ pushing, confirm on GitHub that there is **no `.env` file** in `server/`.
 4. Expand **Environment Variables** and add **one**:
    | Key | Value |
    |---|---|
-   | `VITE_API_URL` | `https://luxe-api.onrender.com/api` |
+   | `VITE_API_URL` | `https://luxe-ecommerce-platform.onrender.com/api` |
 
    ⚠️ Use **your** Render URL from Step 2, and **keep the `/api` on the end**.
 
-5. **Deploy**. When done, you get a URL like `https://luxe-shop.vercel.app`.
+5. **Deploy**. When done, you get a URL like `https://luxe-ecommerce-platform-pied.vercel.app`.
 
    📌 **Save this as your frontend URL.**
 
@@ -157,7 +158,7 @@ login cookies only work between known sites. So:
 1. Go back to **Render → your service → Environment**.
 2. Set **`FRONTEND_URL`** to your exact Vercel URL **without a trailing slash**:
    ```
-   FRONTEND_URL = https://luxe-shop.vercel.app
+   FRONTEND_URL = https://luxe-ecommerce-platform-pied.vercel.app
    ```
 3. Save → Render redeploys automatically (~1 min).
 
@@ -201,10 +202,20 @@ Render rebuilds the API and Vercel rebuilds the site automatically.
 
 ---
 
-## 💳 Razorpay in production (optional)
+## 💳 Payments in production
 
-- Leaving `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` blank on Render = demo checkout
-  (orders work, no real gateway). Perfectly fine for a portfolio.
-- To take **real test payments live**, paste your `rzp_test_...` keys into Render's
-  env vars (same as local). For **real money**, you'd complete Razorpay KYC and use
-  live keys — only do that for an actual business.
+The checkout picks its gateways from whatever keys are set on Render — nothing is
+hard-coded, so you can enable one, both, or neither:
+
+- **Stripe (card, USD) — recommended.** Set `STRIPE_PUBLISHABLE_KEY` +
+  `STRIPE_SECRET_KEY` (your `pk_test_...` / `sk_test_...` from
+  <https://dashboard.stripe.com/test/apikeys>). Card is entered in-page; test with
+  `4242 4242 4242 4242`, any future expiry, any CVC.
+- **Razorpay (UPI/card, INR) — optional.** Set `RAZORPAY_KEY_ID` +
+  `RAZORPAY_KEY_SECRET` (`rzp_test_...`). The USD catalog total is converted to INR
+  at a live exchange rate before charging. Razorpay signup now requires a PAN, so
+  it's fine to skip this and run Stripe-only.
+- **Neither set = demo checkout** (orders are created, no real gateway) — perfectly
+  fine for a portfolio.
+- For **real money** you'd complete the provider's KYC and swap in live keys — only
+  do that for an actual business.
