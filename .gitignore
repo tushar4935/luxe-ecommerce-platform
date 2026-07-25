@@ -46,3 +46,6 @@ Thumbs.db
 # Misc
 .eslintcache
 *.tgz
+
+# Raw, uncropped screenshots (only the processed docs/screenshots/*.png are committed)
+docs/screenshots/raw/

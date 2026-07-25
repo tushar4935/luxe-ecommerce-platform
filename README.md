@@ -49,17 +49,27 @@ _Additional demo customers `customer2@luxe.com` … `customer6@luxe.com` share t
 
 ## 📸 Screenshots
 
-> _Captured from the live site — added in the deployment step._
+_Captured from the live site._
 
-<!-- SCREENSHOTS: replaced with real images once the site is live (Task 3). -->
+### Storefront
 
-| Home | Shop + filters | Product detail |
+![Home](docs/screenshots/01-home-hero.png)
+
+| Shop + filters | Product quick view |
+| --- | --- |
+| ![Shop](docs/screenshots/02-shop-filters.png) | ![Quick view](docs/screenshots/03-product-quick-view.png) |
+
+| Wishlist | Compare | Order confirmation |
 | --- | --- | --- |
-| _coming_ | _coming_ | _coming_ |
+| ![Wishlist](docs/screenshots/04-wishlist.png) | ![Compare](docs/screenshots/05-compare.png) | ![Order confirmation](docs/screenshots/06-order-confirmation.png) |
 
-| Cart / Checkout | Admin dashboard | Admin product CRUD |
-| --- | --- | --- |
-| _coming_ | _coming_ | _coming_ |
+### Admin
+
+![Admin dashboard](docs/screenshots/07-admin-dashboard.png)
+
+| Orders management | Product management |
+| --- | --- |
+| ![Admin orders](docs/screenshots/08-admin-orders.png) | ![Admin products](docs/screenshots/09-admin-products.png) |
 
 ---
 
