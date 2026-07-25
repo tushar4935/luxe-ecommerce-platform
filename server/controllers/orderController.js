@@ -7,12 +7,14 @@ const ApiError = require('../utils/ApiError');
 const sendEmail = require('../utils/sendEmail');
 const { buildItemsAndTotals } = require('../utils/orderTotals');
 const { isRazorpayEnabled, verifyPaymentSignature } = require('../utils/razorpay');
+const { isStripeEnabled, verifyStripePayment } = require('../utils/stripe');
 
 /**
  * POST /api/orders — place an order from the user's cart.
  */
 const createOrder = asyncHandler(async (req, res) => {
-  const { shippingAddress, paymentMethod, couponCode, notes, razorpay } = req.body;
+  const { shippingAddress, paymentMethod, gateway, couponCode, notes, razorpay, stripePaymentIntentId } =
+    req.body;
 
   if (!shippingAddress) throw new ApiError(400, 'Shipping address is required');
   if (!['card', 'paypal', 'cod'].includes(paymentMethod))
@@ -34,13 +36,24 @@ const createOrder = asyncHandler(async (req, res) => {
     buildItemsAndTotals(cart, appliedCoupon, req.user._id);
 
   // ── Payment ────────────────────────────────────────────────────────
-  // 'card' is handled by Razorpay when configured: the order is only marked
-  // paid after the signature returned to the browser is verified server-side.
-  // Without keys, card/paypal fall back to a demo "paid" so the flow still works.
+  // A 'card' order can be paid via Stripe (USD) or Razorpay (INR). Whichever
+  // gateway the client used is re-verified server-side before the order is
+  // marked paid — we never trust the browser's "paid" claim. Without keys,
+  // card/paypal fall back to a demo "paid" so the flow still works end-to-end.
   let paymentStatus = 'pending';
   const paymentMeta = {};
   if (paymentMethod === 'card') {
-    if (isRazorpayEnabled()) {
+    if (gateway === 'stripe' && isStripeEnabled()) {
+      // Re-fetch the PaymentIntent from Stripe; must be 'succeeded' for the
+      // exact USD total we're about to save.
+      const ok = await verifyStripePayment(stripePaymentIntentId, totalAmount);
+      if (!ok) throw new ApiError(400, 'Payment verification failed');
+      paymentStatus = 'paid';
+      paymentMeta.paymentProvider = 'stripe';
+      paymentMeta.stripePaymentIntentId = stripePaymentIntentId;
+      paymentMeta.transactionId = stripePaymentIntentId;
+    } else if (gateway === 'razorpay' && isRazorpayEnabled()) {
+      // Verify the HMAC signature Razorpay returned to the browser.
       if (!verifyPaymentSignature(razorpay || {})) {
         throw new ApiError(400, 'Payment verification failed');
       }
@@ -50,7 +63,7 @@ const createOrder = asyncHandler(async (req, res) => {
       paymentMeta.razorpayPaymentId = razorpay.razorpayPaymentId;
       paymentMeta.transactionId = razorpay.razorpayPaymentId;
     } else {
-      paymentStatus = 'paid'; // demo
+      paymentStatus = 'paid'; // demo (no gateway configured)
     }
   } else if (paymentMethod === 'paypal') {
     paymentStatus = 'paid'; // demo

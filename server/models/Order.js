@@ -53,11 +53,12 @@ const orderSchema = new mongoose.Schema(
       enum: ['pending', 'paid', 'failed', 'refunded'],
       default: 'pending',
     },
-    // Gateway details (set when paid via Razorpay).
-    paymentProvider: { type: String }, // e.g. 'razorpay'
+    // Gateway details (set when paid online).
+    paymentProvider: { type: String }, // 'stripe' | 'razorpay'
     transactionId: String,
     razorpayOrderId: String,
     razorpayPaymentId: String,
+    stripePaymentIntentId: String,
     orderStatus: {
       type: String,
       enum: ['processing', 'confirmed', 'shipped', 'delivered', 'cancelled', 'returned'],
